@@ -1,7 +1,7 @@
 import { highlightBend } from "./bendHighlight";
 import { editView, type DefinitionRequest } from "./editView";
 import { fetchHubFile, fetchHubIndex, formatBytes, HUB_ORIGIN, type HubPackage } from "./hub";
-import { body, cursor, div, elFromTag, h1, h2, link, navbar, p, palette, pre, span } from "./ui";
+import { body, cursor, div, elFromTag, h1, h2, h3, link, navbar, niceTable, p, palette, pre, span } from "./ui";
 
 type Project = { entry: string; files: Record<string, string> };
 type OpenDocument =
@@ -438,6 +438,13 @@ const tabs = navbar({
   about: () => div(
     p("bend-editor is fan art for the ", link("Bend", "https://bend-lang.org/"), " programming language."),
     p("say hi: ", link("contact", "https://x.com/dogecahedron")),
+    h3("shortcuts"),
+    niceTable([
+      ["Shortcut", "Action"],
+      ["Cmd + Enter", "toggle editor / output"],
+      ["Cmd + Click", "jump to definition"],
+      
+    ]),
   ).style({ padding: "1em" }),
 });
 

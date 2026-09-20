@@ -167,6 +167,7 @@ var pre = tagger("pre");
 var h1 = tagger("h1");
 var h2 = tagger("h2");
 var h3 = tagger("h3");
+var table = tagger("table");
 var body = elFromHTML(document.body);
 var cursor = div().style({
   background: palette.accent,
@@ -214,23 +215,100 @@ function navbar(items) {
   render();
   return Object.assign(view, { select });
 }
+function niceTable(items) {
+  return div(table(...items.map((row, i) => {
+    return elFromTag("tr").append(...row.map((cell) => elFromTag(i == 0 ? "th" : "td").append(cell).style({
+      border: `1px solid ${palette.hint}`,
+      padding: ".2em .5em"
+    })));
+  })).style({
+    borderCollapse: "collapse",
+    width: "100%",
+    textAlign: "left",
+    border: `2px solid ${palette.hint}`,
+    overflow: "hidden"
+  })).style({
+    border: `1px solid ${palette.hint}`,
+    borderRadius: "6px",
+    overflow: "hidden"
+  });
+}
 
 // editView.ts
 function editView(rows, cols, highlighter, onChange) {
-  const cursor2 = { start: { line: 0, col: 0 }, end: { line: 0, col: 0 } };
-  function setCursor(pos) {
-    cursor2.start = { ...pos };
-    cursor2.end = { ...pos };
-  }
+  const cursor2 = {
+    start: { line: 0, col: 0 },
+    end: { line: 0, col: 0 }
+  };
   let lines = [""];
   let editable = true;
+  let dragging = false;
   let definitionHandler;
   let typeHandler;
   let typeLeaveHandler;
-  function definitionAt(pos) {
-    const line = lines[pos.line] ?? "";
+  const samePos = (a, b) => a.line === b.line && a.col === b.col;
+  const before = (a, b) => a.line < b.line || a.line === b.line && a.col < b.col;
+  function clamp(value) {
+    const line = Math.max(0, Math.min(lines.length - 1, value.line));
+    return { line, col: Math.max(0, Math.min(lines[line].length, value.col)) };
+  }
+  function setCursor(value) {
+    const at = clamp(value);
+    cursor2.start = { ...at };
+    cursor2.end = { ...at };
+  }
+  function moveCursor(value, extend = false) {
+    const at = clamp(value);
+    if (!extend)
+      cursor2.start = { ...at };
+    cursor2.end = { ...at };
+  }
+  function selection() {
+    return before(cursor2.end, cursor2.start) ? { from: cursor2.end, to: cursor2.start } : { from: cursor2.start, to: cursor2.end };
+  }
+  function hasSelection() {
+    return !samePos(cursor2.start, cursor2.end);
+  }
+  function selectedText() {
+    if (!hasSelection())
+      return "";
+    const { from, to } = selection();
+    if (from.line === to.line)
+      return lines[from.line].slice(from.col, to.col);
+    return [
+      lines[from.line].slice(from.col),
+      ...lines.slice(from.line + 1, to.line),
+      lines[to.line].slice(0, to.col)
+    ].join(`
+`);
+  }
+  function isSelected(line, col) {
+    if (!hasSelection())
+      return false;
+    const { from, to } = selection();
+    if (line < from.line || line > to.line)
+      return false;
+    if (from.line === to.line)
+      return col >= from.col && col < to.col;
+    if (line === from.line)
+      return col >= from.col;
+    if (line === to.line)
+      return col < to.col;
+    return true;
+  }
+  function deleteSelection() {
+    if (!hasSelection())
+      return false;
+    const { from, to } = selection();
+    const joined = lines[from.line].slice(0, from.col) + lines[to.line].slice(to.col);
+    lines.splice(from.line, to.line - from.line + 1, joined);
+    setCursor(from);
+    return true;
+  }
+  function definitionAt(value) {
+    const line = lines[value.line] ?? "";
     const isName = (char) => /[A-Za-z0-9_.$]/.test(char);
-    let start = Math.min(pos.col, Math.max(0, line.length - 1));
+    let start = Math.min(value.col, Math.max(0, line.length - 1));
     if (!isName(line[start] ?? ""))
       return;
     let end = start + 1;
@@ -238,105 +316,175 @@ function editView(rows, cols, highlighter, onChange) {
       start -= 1;
     while (end < line.length && isName(line[end]))
       end += 1;
-    return { line: pos.line, col: start, token: line.slice(start, end) };
+    return { line: value.line, col: start, token: line.slice(start, end) };
   }
-  function requestDefinition(pos) {
-    const request = definitionAt(pos);
+  function requestDefinition(value) {
+    const request = definitionAt(value);
     if (request)
       definitionHandler?.(request);
   }
-  function moveCursorX(delta) {
-    if (delta < 0) {
-      if (cursor2.start.col > 0)
-        return setCursor({ line: cursor2.start.line, col: Math.max(0, cursor2.start.col + delta) });
-      if (cursor2.start.line == 0)
-        return;
-      return setCursor({ line: cursor2.start.line - 1, col: lines[cursor2.start.line - 1].length });
-    }
-    if (cursor2.start.col == lines[cursor2.start.line].length) {
-      if (cursor2.start.line == lines.length - 1)
-        return;
-      return setCursor({ line: cursor2.start.line + 1, col: 0 });
-    }
-    setCursor({ line: cursor2.start.line, col: Math.min(cursor2.start.col + delta, lines[cursor2.start.line].length) });
-  }
-  function moveCursorY(delta) {
-    setCursor({ line: Math.max(0, Math.min(lines.length - 1, cursor2.start.line + delta)), col: cursor2.start.col });
-  }
-  function deleteText(n = 1) {
-    insertText([""]);
-    if (cursor2.start.col > 0) {
-      lines[cursor2.start.line] = lines[cursor2.start.line].slice(0, cursor2.start.col - n) + lines[cursor2.start.line].slice(cursor2.start.col);
-      setCursor({ line: cursor2.start.line, col: cursor2.start.col - n });
-    } else {
-      if (cursor2.start.line > 0) {
-        const prevLineLength = lines[cursor2.start.line - 1].length;
-        lines[cursor2.start.line - 1] += lines[cursor2.start.line];
-        lines.splice(cursor2.start.line, 1);
-        setCursor({ line: cursor2.start.line - 1, col: prevLineLength });
-      }
-    }
-    onTextChange();
-  }
-  function insertText(t) {
-    if (t.length == 0)
-      throw Error("no empty insert");
-    t[0] = lines[cursor2.start.line].slice(0, cursor2.start.col) + t[0];
-    let cur = { line: cursor2.start.line + t.length - 1, col: t[t.length - 1].length };
-    t[t.length - 1] = t[t.length - 1] + lines[cursor2.start.line].slice(cursor2.start.col);
-    lines = [
-      ...lines.slice(0, cursor2.start.line),
-      ...t,
-      ...lines.slice(cursor2.start.line + 1)
-    ];
-    setCursor(cur);
-    onTextChange();
-  }
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "F12") {
-      e.preventDefault();
-      requestDefinition(cursor2.start);
+  function insertText(input) {
+    if (input.length === 0)
       return;
+    const text = [...input];
+    deleteSelection();
+    const at = cursor2.end;
+    text[0] = lines[at.line].slice(0, at.col) + text[0];
+    const next = { line: at.line + text.length - 1, col: text[text.length - 1].length };
+    text[text.length - 1] += lines[at.line].slice(at.col);
+    lines.splice(at.line, 1, ...text);
+    setCursor(next);
+    onTextChange();
+  }
+  function deleteBackward(toLineStart = false) {
+    if (deleteSelection())
+      return onTextChange();
+    const at = cursor2.end;
+    if (at.col > 0) {
+      const count = toLineStart ? at.col : 1;
+      lines[at.line] = lines[at.line].slice(0, at.col - count) + lines[at.line].slice(at.col);
+      setCursor({ line: at.line, col: at.col - count });
+    } else if (at.line > 0) {
+      const col = lines[at.line - 1].length;
+      lines[at.line - 1] += lines[at.line];
+      lines.splice(at.line, 1);
+      setCursor({ line: at.line - 1, col });
+    } else
+      return;
+    onTextChange();
+  }
+  function deleteForward() {
+    if (deleteSelection())
+      return onTextChange();
+    const at = cursor2.end;
+    if (at.col < lines[at.line].length) {
+      lines[at.line] = lines[at.line].slice(0, at.col) + lines[at.line].slice(at.col + 1);
+    } else if (at.line < lines.length - 1) {
+      lines[at.line] += lines[at.line + 1];
+      lines.splice(at.line + 1, 1);
+    } else
+      return;
+    onTextChange();
+  }
+  function horizontal(value, delta) {
+    if (delta < 0) {
+      if (value.col > 0)
+        return { line: value.line, col: value.col - 1 };
+      if (value.line > 0)
+        return { line: value.line - 1, col: lines[value.line - 1].length };
+      return value;
+    }
+    if (value.col < lines[value.line].length)
+      return { line: value.line, col: value.col + 1 };
+    if (value.line < lines.length - 1)
+      return { line: value.line + 1, col: 0 };
+    return value;
+  }
+  document.addEventListener("keydown", (event) => {
+    if (document.activeElement !== main.view)
+      return;
+    const mod = event.metaKey || event.ctrlKey;
+    if (event.key === "F12") {
+      event.preventDefault();
+      requestDefinition(cursor2.end);
+      return;
+    }
+    if (mod && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      cursor2.start = { line: 0, col: 0 };
+      cursor2.end = { line: lines.length - 1, col: lines.at(-1).length };
+      return render();
     }
     if (!editable)
       return;
-    if (e.key.length == 1) {
-      if (e.metaKey || e.ctrlKey)
-        return;
-      insertText([e.key]);
+    if (event.key.length === 1 && !mod) {
+      event.preventDefault();
+      return insertText([event.key]);
     }
-    if (e.key == "Enter" && !e.metaKey) {
-      insertText(["", ""]);
+    if (event.key === "Enter" && !event.metaKey) {
+      event.preventDefault();
+      return insertText(["", ""]);
     }
-    if (e.key == "Backspace") {
-      deleteText(e.metaKey ? cursor2.start.col : 1);
-      onTextChange();
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      return deleteBackward(mod);
     }
-    if (e.key.startsWith("Arrow")) {
-      if (e.metaKey)
-        e.preventDefault();
-      if (e.key == "ArrowLeft")
-        moveCursorX(e.metaKey ? -Math.max(1, lines[cursor2.start.line].length) : -1);
-      if (e.key == "ArrowRight")
-        moveCursorX(e.metaKey ? lines[cursor2.start.line].length : 1);
-      if (e.key == "ArrowUp")
-        moveCursorY(e.metaKey ? -cursor2.start.line : -1);
-      if (e.key == "ArrowDown")
-        moveCursorY(e.metaKey ? lines.length : 1);
-      render();
+    if (event.key === "Delete") {
+      event.preventDefault();
+      return deleteForward();
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      if (hasSelection() && !event.shiftKey && !mod) {
+        return setCursor(event.key === "ArrowLeft" ? selection().from : selection().to), render();
+      }
+      const target = mod ? { line: cursor2.end.line, col: event.key === "ArrowLeft" ? 0 : lines[cursor2.end.line].length } : horizontal(cursor2.end, event.key === "ArrowLeft" ? -1 : 1);
+      moveCursor(target, event.shiftKey);
+      return render();
+    }
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const delta = event.key === "ArrowUp" ? -1 : 1;
+      const target = mod ? { line: delta < 0 ? 0 : lines.length - 1, col: cursor2.end.col } : { line: cursor2.end.line + delta, col: cursor2.end.col };
+      moveCursor(target, event.shiftKey);
+      return render();
     }
   });
-  let main = pre().style({
+  document.addEventListener("copy", (event) => {
+    if (document.activeElement !== main.view || !hasSelection())
+      return;
+    event.preventDefault();
+    event.clipboardData?.setData("text/plain", selectedText());
+  });
+  document.addEventListener("cut", (event) => {
+    if (document.activeElement !== main.view || !editable || !hasSelection())
+      return;
+    event.preventDefault();
+    event.clipboardData?.setData("text/plain", selectedText());
+    deleteSelection();
+    onTextChange();
+  });
+  document.addEventListener("paste", (event) => {
+    if (document.activeElement !== main.view || !editable)
+      return;
+    const text = event.clipboardData?.getData("text/plain");
+    if (text === undefined)
+      return;
+    event.preventDefault();
+    insertText(text.replace(/\r\n?/g, `
+`).split(`
+`));
+  });
+  document.addEventListener("mouseup", () => {
+    dragging = false;
+  });
+  const main = pre().style({
     margin: "0",
     width: `${cols}ch`,
     height: `${rows}em`,
     padding: "1em",
-    overflow: "auto"
+    overflow: "auto",
+    outline: "none",
+    userSelect: "none"
   });
-  main.view.onclick = (e) => {
-    if (e.target === main.view)
-      setCursor({ line: lines.length - 1, col: lines[lines.length - 1].length });
-    render();
+  main.view.tabIndex = 0;
+  main.view.onclick = (event) => {
+    if (event.target === main.view) {
+      main.view.focus();
+      setCursor({ line: lines.length - 1, col: lines.at(-1).length });
+      render();
+    }
+  };
+  main.view.onmousemove = (event) => {
+    if (!dragging)
+      return;
+    const target = event.target;
+    const line = Number(target.dataset.line);
+    const col = Number(target.dataset.col);
+    if (Number.isInteger(line) && Number.isInteger(col)) {
+      moveCursor({ line, col }, true);
+      render();
+    }
   };
   let colorMap = [];
   function onTextChange() {
@@ -346,31 +494,51 @@ function editView(rows, cols, highlighter, onChange) {
     onChange?.([...lines]);
   }
   function render() {
-    let lineEls = lines.map((line, no) => {
-      let chars = line.split("").concat([" "]).map((char, col) => {
-        let cidx = colorMap[no]?.[col] ?? 0;
-        let color = palette.colors[cidx % palette.colors.length];
-        let el = span(char).style({ color });
-        el.view.onclick = (event) => {
-          setCursor({ line: no, col });
-          if (event.metaKey || event.ctrlKey)
+    const lineEls = lines.map((line, no) => {
+      const chars = line.split("").concat([" "]).map((char, col) => {
+        const cidx = colorMap[no]?.[col] ?? 0;
+        const el = span(char).style({ color: palette.colors[cidx % palette.colors.length] });
+        el.view.dataset.line = String(no);
+        el.view.dataset.col = String(col);
+        el.view.onmousedown = (event) => {
+          event.preventDefault();
+          main.view.focus();
+          if (event.metaKey || event.ctrlKey) {
+            setCursor({ line: no, col });
             requestDefinition({ line: no, col });
+          } else {
+            if (event.shiftKey)
+              moveCursor({ line: no, col }, true);
+            else
+              setCursor({ line: no, col });
+            dragging = true;
+          }
           render();
         };
         el.view.onmouseenter = () => {
+          if (dragging)
+            return;
           const request = definitionAt({ line: no, col });
           if (request)
             typeHandler?.(request, el.view);
         };
         el.view.onmouseleave = () => typeLeaveHandler?.();
-        if (cursor2.start.line == no && Math.min(line.length, cursor2.start.col) == col)
+        if (isSelected(no, col)) {
+          el.style({ background: palette.hint });
+        } else if (!hasSelection() && samePos(cursor2.end, { line: no, col })) {
           el.style({ background: palette.accent, width: "1ch" });
+        }
         return el;
       });
-      let lineEl = div(span(no.toString().padStart(3, " ") + " ").style({ color: palette.hint }), ...chars);
-      lineEl.view.onclick = (e) => {
-        if (e.target === lineEl.view)
-          setCursor({ line: no, col: line.length });
+      const number = span(no.toString().padStart(3, " ") + " ").style({ color: palette.hint });
+      const lineEl = div(number, ...chars);
+      lineEl.view.onmousedown = (event) => {
+        if (event.target !== lineEl.view)
+          return;
+        event.preventDefault();
+        main.view.focus();
+        setCursor({ line: no, col: line.length });
+        dragging = true;
         render();
       };
       return lineEl;
@@ -381,7 +549,7 @@ function editView(rows, cols, highlighter, onChange) {
   return {
     view: main,
     setText: (text) => {
-      lines = [...text];
+      lines = text.length === 0 ? [""] : [...text];
       setCursor({ line: 0, col: 0 });
       if (highlighter)
         colorMap = highlighter(lines);
@@ -400,12 +568,9 @@ function editView(rows, cols, highlighter, onChange) {
       typeLeaveHandler = leave;
     },
     goTo: (line, col) => {
-      setCursor({
-        line: Math.max(0, Math.min(lines.length - 1, line)),
-        col: Math.max(0, col)
-      });
+      setCursor({ line, col });
       render();
-      requestAnimationFrame(() => main.view.children.item(cursor2.start.line)?.scrollIntoView({ block: "center" }));
+      requestAnimationFrame(() => main.view.children.item(cursor2.end.line)?.scrollIntoView({ block: "center" }));
     }
   };
 }
@@ -841,7 +1006,11 @@ var tabs = navbar({
     }
     return output;
   },
-  about: () => div(p("bend-editor is fan art for the ", link("Bend", "https://bend-lang.org/"), " programming language."), p("say hi: ", link("contact", "https://x.com/dogecahedron"))).style({ padding: "1em" })
+  about: () => div(p("bend-editor is fan art for the ", link("Bend", "https://bend-lang.org/"), " programming language."), p("say hi: ", link("contact", "https://x.com/dogecahedron")), h3("shortcuts"), niceTable([
+    ["Shortcut", "Action"],
+    ["Cmd + Enter", "toggle editor / output"],
+    ["Cmd + Click", "jump to definition"]
+  ])).style({ padding: "1em" })
 });
 editor.setDefinitionHandler((request) => {
   jumpToDefinition(request).catch((error) => {
@@ -852,5 +1021,5 @@ editor.setTypeHandler(requestTypePreview, hideTypePreview);
 openProjectFile(project.entry, false);
 body.append(head, tabs, typePreview);
 
-//# debugId=62C2DB18091DE67E64756E2164756E21
+//# debugId=2AF4E73EC458B2FA64756E2164756E21
 //# sourceMappingURL=main.js.map

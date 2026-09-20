@@ -93,6 +93,8 @@ export const h1 = tagger('h1');
 export const h2 = tagger('h2');
 export const h3 = tagger('h3');
 
+export const table = tagger('table')
+
 export function textarea (placeholder = '') {
   return elFromTag('textarea')
     .style({ fontFamily: 'ui-monospace, Menlo, "SF Mono", Consolas, "Liberation Mono", monospace' })
@@ -175,5 +177,29 @@ export function niceList(items: [(EL<any> | string), Partial<HTMLElement>][]) {
   });
 }
 
+
+
+export function niceTable (items: (EL<any> | string)[][]) {
+  return div(table(
+    ...items.map((row,i) => {
+      return elFromTag( 'tr').append(
+        ...row.map(cell => elFromTag(i==0?'th':'td').append(cell).style({
+          border: `1px solid ${palette.hint}`,
+          padding: ".2em .5em",
+        }))
+      );
+    })
+  ).style({
+    borderCollapse: "collapse",
+    width: "100%",
+    textAlign: "left",
+    border: `2px solid ${palette.hint}`,
+    overflow: "hidden",
+  })).style({
+    border: `1px solid ${palette.hint}`,
+    borderRadius: "6px",
+    overflow: "hidden",
+  })
+}
 
 
