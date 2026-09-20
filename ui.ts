@@ -110,6 +110,9 @@ export const cursor = div().style({
 })
 
 export function navbar(items: Record<string, ()=> EL<any>>) {
+
+
+
   const entries = Object.entries(items);
   const bar = div().style({ display: "flex" });
   const page = div().style({
@@ -118,7 +121,16 @@ export function navbar(items: Record<string, ()=> EL<any>>) {
     border: `2px solid ${palette.hint}`,
   });
 
-  function render(selection = 0){
+
+
+  document.addEventListener("keydown", e=>{
+    if (e.key == "Enter" && e.metaKey) render(selection == 0 ? 1: 0)
+  })
+
+  let selection = 0
+
+  function render(sel=0){
+    selection = sel;
     bar.replaceChildren();
     entries.forEach(([name, item], i) => {
       const but = span(name).style({

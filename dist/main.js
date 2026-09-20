@@ -182,7 +182,13 @@ function navbar(items) {
     margin: "0",
     border: `2px solid ${palette.hint}`
   });
-  function render(selection = 0) {
+  document.addEventListener("keydown", (e) => {
+    if (e.key == "Enter" && e.metaKey)
+      render(selection == 0 ? 1 : 0);
+  });
+  let selection = 0;
+  function render(sel = 0) {
+    selection = sel;
     bar.replaceChildren();
     entries.forEach(([name, item], i) => {
       const but = span(name).style({
@@ -247,7 +253,7 @@ function editView(rows, cols, highlighter) {
         setCursor({ line: cursor2.start.line - 1, col: prevLineLength });
       }
     }
-    render();
+    onTextChange();
   }
   function insertText(t) {
     if (t.length == 0)
@@ -261,26 +267,34 @@ function editView(rows, cols, highlighter) {
       ...lines.slice(cursor2.start.line + 1)
     ];
     setCursor(cur);
-    render();
+    onTextChange();
   }
   document.addEventListener("keydown", (e) => {
     if (e.key.length == 1)
       insertText([e.key]);
-    if (e.key == "Enter") {
+    if (e.key == "Enter" && !e.metaKey) {
       insertText(["", ""]);
     }
     if (e.key == "Backspace") {
       deleteText(e.metaKey ? cursor2.start.col : 1);
+      onTextChange();
     }
-    if (e.key == "ArrowLeft")
+    if (e.key == "ArrowLeft") {
       moveCursorX(-1);
-    if (e.key == "ArrowRight")
+      render();
+    }
+    if (e.key == "ArrowRight") {
       moveCursorX(1);
-    if (e.key == "ArrowUp")
+      render();
+    }
+    if (e.key == "ArrowUp") {
       moveCursorY(-1);
-    if (e.key == "ArrowDown")
+      render();
+    }
+    if (e.key == "ArrowDown") {
       moveCursorY(1);
-    render();
+      render();
+    }
   });
   let main = pre().style({
     margin: "0",
@@ -295,9 +309,12 @@ function editView(rows, cols, highlighter) {
     render();
   };
   let colorMap = [];
-  function render() {
+  function onTextChange() {
     if (highlighter)
       colorMap = highlighter(lines);
+    render();
+  }
+  function render() {
     let lineEls = lines.map((line, no) => {
       let chars = line.split("").concat([" "]).map((char, col) => {
         let cidx = colorMap[no]?.[col] ?? 0;
@@ -322,23 +339,22 @@ function editView(rows, cols, highlighter) {
     main.replaceChildren(...lineEls);
   }
   insertText(["import Base", "", "def main() -> Nat:", "  0n"]);
-  function setColorMap(map) {
-    colorMap = map;
-    render();
-  }
   return {
     view: main,
     setText: (text) => {
       lines = text;
       render();
     },
-    getText: () => lines,
-    setColorMap
+    getText: () => lines
   };
 }
 
 // main.ts
-var editor = editView(40, 80, highlightBend);
+var runInitiated = false;
+var editor = editView(40, 80, (t) => {
+  runInitiated = false;
+  return highlightBend(t);
+});
 var output = pre().style({
   boxSizing: "border-box",
   margin: "0",
@@ -376,13 +392,16 @@ var head = div(h1(link("bend2", "https://bend-lang.org/").style({ textDecoration
 var tabs = navbar({
   editor: () => editor.view,
   output: () => {
-    output.append("Checking…");
-    run();
+    if (!runInitiated) {
+      output.append(p("Checking…"));
+      runInitiated = true;
+      run();
+    }
     return output;
   },
   about: () => div(p("bend-editor is fan art for the ", link("Bend", "https://bend-lang.org/"), " programming language."), p("say hi: ", link("contact", "https://x.com/dogecahedron"))).style({ padding: "1em" })
 });
 body.append(head, tabs);
 
-//# debugId=D2817D0BA55465EB64756E2164756E21
+//# debugId=32C437938AA13B9E64756E2164756E21
 //# sourceMappingURL=main.js.map

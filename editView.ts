@@ -20,7 +20,6 @@ export function editView(
 
   let lines: string[] = ['']
 
-
   function moveCursorX(delta: number){
     if (delta < 0) {
       if (cursor.start.col >  0) return setCursor({ line: cursor.start.line, col: Math.max(0, cursor.start.col + delta) })
@@ -51,7 +50,7 @@ export function editView(
         setCursor({ line: cursor.start.line - 1, col: prevLineLength });
       }
     }
-    render()
+    onTextChange()
   }
   
 
@@ -70,25 +69,27 @@ export function editView(
       ]
     );
     setCursor(cur);
-    render();
+    onTextChange();
   }
 
   document.addEventListener("keydown", e=>{
     if (e.key.length == 1) insertText([e.key]);
-    if (e.key == "Enter"){
+    if (e.key == "Enter" && !e.metaKey){
       insertText(['',''])
+
     }
     if (e.key == "Backspace"){
       deleteText( e.metaKey ? cursor.start.col : 1 );
+      onTextChange()
     }
 
 
-    if (e.key == "ArrowLeft") moveCursorX(-1);
-    if (e.key == "ArrowRight") moveCursorX(1);
-    if (e.key == "ArrowUp") moveCursorY(-1);
-    if (e.key == "ArrowDown") moveCursorY(1);
+    if (e.key == "ArrowLeft")  {moveCursorX(-1);render() }
+    if (e.key == "ArrowRight") {moveCursorX(1);render() }
+    if (e.key == "ArrowUp")    {moveCursorY(-1);render() }
+    if (e.key == "ArrowDown")  {moveCursorY(1);render() }
 
-    render()
+
 
   })
 
@@ -101,8 +102,13 @@ export function editView(
   })
   main.view.onclick = (e) => {if (e.target === main.view) setCursor({ line: lines.length - 1, col: lines[lines.length - 1]!.length }); render()};
   let colorMap: number[][] = [];
-  function render (){
+
+  function onTextChange(){
     if (highlighter) colorMap = highlighter(lines);
+    render()
+  }
+
+  function render (){
     let lineEls = lines.map((line, no)=>{
       let chars = line.split('').concat([' ']).map((char ,col) => {
         let cidx = colorMap[no]?.[col] ?? 0;
@@ -123,10 +129,6 @@ export function editView(
 
   insertText(["import Base", "", "def main() -> Nat:", "  0n"])
 
-  function setColorMap(map: number[][]){
-    colorMap = map;
-    render();
-  }
 
   return {
     view: main,
@@ -135,6 +137,5 @@ export function editView(
       render();
     },
     getText: () =>lines,
-    setColorMap,
   }
 }

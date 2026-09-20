@@ -2,7 +2,14 @@ import { highlightBend } from "./bendHighlight";
 import { editView } from "./editView";
 import { body, cursor, div, elFromTag, h1, link, navbar, p, palette, pre } from "./ui";
 
-const editor = editView(40, 80, highlightBend);
+
+let runInitiated = false;
+
+const editor = editView(40, 80, (t)=>{
+  runInitiated = false
+  return highlightBend(t)
+});
+
 const output = pre().style({
   boxSizing: "border-box",
   margin: "0",
@@ -39,7 +46,6 @@ function run(): void {
   timeout = setTimeout(() => finish("Execution stopped after 5 seconds."), 5000);
 }
 
-
 const head = div(
   h1(link("bend2", "https://bend-lang.org/").style({ textDecoration: "none" }), cursor)
   .style({ display: "flex", alignItems: "center" }),
@@ -48,8 +54,11 @@ const head = div(
 const tabs = navbar({
   editor: ()=> editor.view,
   output: ()=> {
-    output.append("Checking…");
-    run();
+    if (!runInitiated){
+      output.append(p("Checking…"));
+      runInitiated = true;
+      run();
+    }
     return output;
   },
   about: ()=>div(
