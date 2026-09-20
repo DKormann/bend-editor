@@ -21,7 +21,6 @@ export function editView(
   let lines: string[] = ['']
 
   function moveCursorX(delta: number){
-    console.log("movex", delta)
     if (delta < 0) {
       if (cursor.start.col >  0) return setCursor({ line: cursor.start.line, col: Math.max(0, cursor.start.col + delta) })
       if (cursor.start.line == 0) return 
@@ -131,7 +130,6 @@ export function editView(
   }
 
   insertText(["import Base", "", "def main() -> Nat:", "  0n"])
-
 
   return {
     view: main,

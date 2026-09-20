@@ -180,7 +180,8 @@ function navbar(items) {
   const page = div().style({
     padding: "0",
     margin: "0",
-    border: `2px solid ${palette.hint}`
+    border: `2px solid ${palette.hint}`,
+    minHeight: "40em"
   });
   document.addEventListener("keydown", (e) => {
     if (e.key == "Enter" && e.metaKey)
@@ -213,6 +214,11 @@ function navbar(items) {
   render();
   return Object.assign(view, { select });
 }
+function niceList(items) {
+  return div(...items).style({
+    padding: "1em"
+  });
+}
 
 // editView.ts
 function editView(rows, cols, highlighter) {
@@ -223,7 +229,6 @@ function editView(rows, cols, highlighter) {
   }
   let lines = [""];
   function moveCursorX(delta) {
-    console.log("movex", delta);
     if (delta < 0) {
       if (cursor2.start.col > 0)
         return setCursor({ line: cursor2.start.line, col: Math.max(0, cursor2.start.col + delta) });
@@ -356,7 +361,6 @@ var editor = editView(40, 80, (t) => {
 var output = pre().style({
   boxSizing: "border-box",
   margin: "0",
-  minHeight: "40em",
   overflow: "auto",
   padding: "1em",
   whiteSpace: "pre-wrap"
@@ -387,7 +391,15 @@ function run() {
   timeout = setTimeout(() => finish("Execution stopped after 5 seconds."), 5000);
 }
 var head = div(h1(link("bend2", "https://bend-lang.org/").style({ textDecoration: "none" }), cursor).style({ display: "flex", alignItems: "center" })).style({ display: "flex", alignItems: "center" });
+var files = {
+  "main.bend": editor.getText().join(`
+`),
+  "foo.bend": `def foo() -> Nat: 22n`
+};
 var tabs = navbar({
+  explorer() {
+    return niceList(Object.entries(files).map(([name, content]) => div(name)));
+  },
   editor: () => editor.view,
   output: () => {
     if (!runInitiated) {
@@ -401,5 +413,5 @@ var tabs = navbar({
 });
 body.append(head, tabs);
 
-//# debugId=0DB1664E3174CE0E64756E2164756E21
+//# debugId=91B008D9C0272F0B64756E2164756E21
 //# sourceMappingURL=main.js.map

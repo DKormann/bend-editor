@@ -119,9 +119,8 @@ export function navbar(items: Record<string, ()=> EL<any>>) {
     padding: "0",
     margin: "0",
     border: `2px solid ${palette.hint}`,
+    minHeight: "40em",
   });
-
-
 
   document.addEventListener("keydown", e=>{
     if (e.key == "Enter" && e.metaKey) render(selection == 0 ? 1: 0)
@@ -156,6 +155,11 @@ export function navbar(items: Record<string, ()=> EL<any>>) {
   return Object.assign(view, { select });
 }
 
+export function niceList(items: (EL<any> | string)[]) {
+  return div(...items).style({
+    padding: "1em"
+  });
+}
 
 
 

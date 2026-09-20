@@ -1,6 +1,6 @@
 import { highlightBend } from "./bendHighlight";
 import { editView } from "./editView";
-import { body, cursor, div, elFromTag, h1, link, navbar, p, palette, pre } from "./ui";
+import { body, cursor, div, elFromTag, h1, link, niceList, navbar, p, palette, pre } from "./ui";
 
 
 let runInitiated = false;
@@ -13,7 +13,7 @@ const editor = editView(40, 80, (t)=>{
 const output = pre().style({
   boxSizing: "border-box",
   margin: "0",
-  minHeight: "40em",
+  // minHeight: "40em",
   overflow: "auto",
   padding: "1em",
   whiteSpace: "pre-wrap",
@@ -51,7 +51,19 @@ const head = div(
   .style({ display: "flex", alignItems: "center" }),
 ).style({display: "flex", alignItems: "center"});
 
+let files = {
+  "main.bend": editor.getText().join("\n"),
+  "foo.bend": `def foo() -> Nat: 22n`
+}
+
+
+
 const tabs = navbar({
+  explorer(){
+    return niceList(
+      Object.entries(files).map(([name, content]) => div(name))
+    );
+  },
   editor: ()=> editor.view,
   output: ()=> {
     if (!runInitiated){
