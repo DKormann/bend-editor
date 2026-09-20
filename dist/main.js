@@ -223,6 +223,7 @@ function editView(rows, cols, highlighter) {
   }
   let lines = [""];
   function moveCursorX(delta) {
+    console.log("movex", delta);
     if (delta < 0) {
       if (cursor2.start.col > 0)
         return setCursor({ line: cursor2.start.line, col: Math.max(0, cursor2.start.col + delta) });
@@ -235,7 +236,7 @@ function editView(rows, cols, highlighter) {
         return;
       return setCursor({ line: cursor2.start.line + 1, col: 0 });
     }
-    setCursor({ line: cursor2.start.line, col: cursor2.start.col + delta });
+    setCursor({ line: cursor2.start.line, col: Math.min(cursor2.start.col + delta, lines[cursor2.start.line].length) });
   }
   function moveCursorY(delta) {
     setCursor({ line: Math.max(0, Math.min(lines.length - 1, cursor2.start.line + delta)), col: cursor2.start.col });
@@ -279,20 +280,17 @@ function editView(rows, cols, highlighter) {
       deleteText(e.metaKey ? cursor2.start.col : 1);
       onTextChange();
     }
-    if (e.key == "ArrowLeft") {
-      moveCursorX(-1);
-      render();
-    }
-    if (e.key == "ArrowRight") {
-      moveCursorX(1);
-      render();
-    }
-    if (e.key == "ArrowUp") {
-      moveCursorY(-1);
-      render();
-    }
-    if (e.key == "ArrowDown") {
-      moveCursorY(1);
+    if (e.key.startsWith("Arrow")) {
+      if (e.metaKey)
+        e.preventDefault();
+      if (e.key == "ArrowLeft")
+        moveCursorX(e.metaKey ? -Math.max(1, lines[cursor2.start.line].length) : -1);
+      if (e.key == "ArrowRight")
+        moveCursorX(e.metaKey ? lines[cursor2.start.line].length : 1);
+      if (e.key == "ArrowUp")
+        moveCursorY(e.metaKey ? cursor2.start.line : -1);
+      if (e.key == "ArrowDown")
+        moveCursorY(e.metaKey ? cursor2.start.line : 1);
       render();
     }
   });
@@ -324,7 +322,7 @@ function editView(rows, cols, highlighter) {
           setCursor({ line: no, col });
           render();
         };
-        if (cursor2.start.line == no && cursor2.start.col == col)
+        if (cursor2.start.line == no && Math.min(line.length, cursor2.start.col) == col)
           el.style({ background: palette.accent, width: "1ch" });
         return el;
       });
@@ -403,5 +401,5 @@ var tabs = navbar({
 });
 body.append(head, tabs);
 
-//# debugId=32C437938AA13B9E64756E2164756E21
+//# debugId=0DB1664E3174CE0E64756E2164756E21
 //# sourceMappingURL=main.js.map

@@ -21,16 +21,18 @@ export function editView(
   let lines: string[] = ['']
 
   function moveCursorX(delta: number){
+    console.log("movex", delta)
     if (delta < 0) {
       if (cursor.start.col >  0) return setCursor({ line: cursor.start.line, col: Math.max(0, cursor.start.col + delta) })
       if (cursor.start.line == 0) return 
       return setCursor({ line: cursor.start.line - 1, col: lines[cursor.start.line - 1]!.length });
     }
+
     if (cursor.start.col == lines[cursor.start.line]!.length){
       if (cursor.start.line == lines.length -1) return
       return setCursor({ line: cursor.start.line + 1, col: 0 });
     }
-    setCursor({ line: cursor.start.line, col: cursor.start.col + delta });
+    setCursor({ line: cursor.start.line, col: Math.min( cursor.start.col + delta, lines[cursor.start.line]!.length) });
   }
 
   function moveCursorY(delta: number){
@@ -76,19 +78,20 @@ export function editView(
     if (e.key.length == 1) insertText([e.key]);
     if (e.key == "Enter" && !e.metaKey){
       insertText(['',''])
-
     }
     if (e.key == "Backspace"){
       deleteText( e.metaKey ? cursor.start.col : 1 );
       onTextChange()
     }
 
-
-    if (e.key == "ArrowLeft")  {moveCursorX(-1);render() }
-    if (e.key == "ArrowRight") {moveCursorX(1);render() }
-    if (e.key == "ArrowUp")    {moveCursorY(-1);render() }
-    if (e.key == "ArrowDown")  {moveCursorY(1);render() }
-
+    if (e.key.startsWith("Arrow")){
+      if (e.metaKey) e.preventDefault()
+      if (e.key == "ArrowLeft")  moveCursorX(e.metaKey ? -Math.max(1,lines[cursor.start.line]!.length) : -1)
+      if (e.key == "ArrowRight") moveCursorX(e.metaKey ? lines[cursor.start.line]!.length : 1)
+      if (e.key == "ArrowUp")    moveCursorY(e.metaKey ? cursor.start.line : -1)
+      if (e.key == "ArrowDown")  moveCursorY(e.metaKey ? cursor.start.line : 1)
+      render()
+    }
 
 
   })
@@ -115,7 +118,7 @@ export function editView(
         let color = palette.colors[cidx % palette.colors.length]
         let el = span(char).style({color})
         el.view.onclick = () => {setCursor({ line: no, col: col }); render()};
-        if (cursor.start.line == no && cursor.start.col == col)
+        if (cursor.start.line == no && Math.min(line.length, cursor.start.col) == col)
           el.style({ background: palette.accent, width: "1ch",});
         return el
       });
