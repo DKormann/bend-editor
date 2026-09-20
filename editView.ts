@@ -153,6 +153,48 @@ export function editView(
     return value;
   }
 
+  function toggleComments(): void {
+    const range = selection();
+    const first = hasSelection() ? range.from.line : cursor.end.line;
+    let last = hasSelection() ? range.to.line : cursor.end.line;
+    // A selection ending at column zero does not include that final line.
+    if (hasSelection() && range.to.col === 0 && last > first) last -= 1;
+
+    const affected = Array.from({ length: last - first + 1 }, (_, index) => first + index)
+      .filter(line => lines[line]!.trim().length > 0);
+    if (affected.length === 0) return;
+    const uncomment = affected.every(line => /^\s*#/.test(lines[line]!));
+    const changes = new Map<number, { at: number; added: number; removed: number }>();
+
+    for (const line of affected) {
+      const source = lines[line]!;
+      const indent = source.match(/^\s*/)?.[0].length ?? 0;
+      if (uncomment) {
+        const remove = source[indent + 1] === " " ? 2 : 1;
+        lines[line] = source.slice(0, indent) + source.slice(indent + remove);
+        changes.set(line, { at: indent, added: 0, removed: remove });
+      } else {
+        lines[line] = source.slice(0, indent) + "# " + source.slice(indent);
+        changes.set(line, { at: indent, added: 2, removed: 0 });
+      }
+    }
+
+    const adjust = (value: pos): pos => {
+      const change = changes.get(value.line);
+      if (change === undefined || value.col <= change.at) return { ...value };
+      if (change.added > 0) return { line: value.line, col: value.col + change.added };
+      return {
+        line: value.line,
+        col: value.col <= change.at + change.removed
+          ? change.at
+          : value.col - change.removed,
+      };
+    };
+    cursor.start = adjust(cursor.start);
+    cursor.end = adjust(cursor.end);
+    onTextChange();
+  }
+
   document.addEventListener("keydown", event => {
     if (document.activeElement !== main.view) return;
     const mod = event.metaKey || event.ctrlKey;
@@ -166,6 +208,11 @@ export function editView(
       cursor.start = { line: 0, col: 0 };
       cursor.end = { line: lines.length - 1, col: lines.at(-1)!.length };
       return render();
+    }
+    if (mod && event.key === "/") {
+      event.preventDefault();
+      if (editable) toggleComments();
+      return;
     }
     if (!editable) return;
     if (event.key.length === 1 && !mod) {
@@ -240,20 +287,32 @@ export function editView(
     userSelect: "none",
   });
   main.view.tabIndex = 0;
-  main.view.onclick = event => {
-    if (event.target === main.view) {
-      main.view.focus();
-      setCursor({ line: lines.length - 1, col: lines.at(-1)!.length });
-      render();
+
+  function pointerPosition(target: EventTarget | null): pos | undefined {
+    const element = target as HTMLElement | null;
+    if (element === main.view) {
+      return { line: lines.length - 1, col: lines.at(-1)!.length };
     }
+    const line = Number(element?.dataset.line);
+    const col = Number(element?.dataset.col);
+    return Number.isInteger(line) && Number.isInteger(col) ? { line, col } : undefined;
+  }
+
+  main.view.onmousedown = event => {
+    if (event.target !== main.view) return;
+    event.preventDefault();
+    main.view.focus();
+    const at = pointerPosition(event.target)!;
+    if (event.shiftKey) moveCursor(at, true);
+    else setCursor(at);
+    dragging = true;
+    render();
   };
   main.view.onmousemove = event => {
     if (!dragging) return;
-    const target = event.target as HTMLElement;
-    const line = Number(target.dataset.line);
-    const col = Number(target.dataset.col);
-    if (Number.isInteger(line) && Number.isInteger(col)) {
-      moveCursor({ line, col }, true);
+    const at = pointerPosition(event.target);
+    if (at) {
+      moveCursor(at, true);
       render();
     }
   };
@@ -301,11 +360,15 @@ export function editView(
       });
       const number = span(no.toString().padStart(3, " ") + " ").style({ color: palette.hint });
       const lineEl = div(number, ...chars);
+      lineEl.view.dataset.line = String(no);
+      lineEl.view.dataset.col = String(line.length);
       lineEl.view.onmousedown = event => {
         if (event.target !== lineEl.view) return;
         event.preventDefault();
         main.view.focus();
-        setCursor({ line: no, col: line.length });
+        const at = { line: no, col: line.length };
+        if (event.shiftKey) moveCursor(at, true);
+        else setCursor(at);
         dragging = true;
         render();
       };

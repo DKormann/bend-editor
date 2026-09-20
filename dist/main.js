@@ -380,6 +380,44 @@ function editView(rows, cols, highlighter, onChange) {
       return { line: value.line + 1, col: 0 };
     return value;
   }
+  function toggleComments() {
+    const range = selection();
+    const first = hasSelection() ? range.from.line : cursor2.end.line;
+    let last = hasSelection() ? range.to.line : cursor2.end.line;
+    if (hasSelection() && range.to.col === 0 && last > first)
+      last -= 1;
+    const affected = Array.from({ length: last - first + 1 }, (_, index) => first + index).filter((line) => lines[line].trim().length > 0);
+    if (affected.length === 0)
+      return;
+    const uncomment = affected.every((line) => /^\s*#/.test(lines[line]));
+    const changes = new Map;
+    for (const line of affected) {
+      const source = lines[line];
+      const indent = source.match(/^\s*/)?.[0].length ?? 0;
+      if (uncomment) {
+        const remove = source[indent + 1] === " " ? 2 : 1;
+        lines[line] = source.slice(0, indent) + source.slice(indent + remove);
+        changes.set(line, { at: indent, added: 0, removed: remove });
+      } else {
+        lines[line] = source.slice(0, indent) + "# " + source.slice(indent);
+        changes.set(line, { at: indent, added: 2, removed: 0 });
+      }
+    }
+    const adjust = (value) => {
+      const change = changes.get(value.line);
+      if (change === undefined || value.col <= change.at)
+        return { ...value };
+      if (change.added > 0)
+        return { line: value.line, col: value.col + change.added };
+      return {
+        line: value.line,
+        col: value.col <= change.at + change.removed ? change.at : value.col - change.removed
+      };
+    };
+    cursor2.start = adjust(cursor2.start);
+    cursor2.end = adjust(cursor2.end);
+    onTextChange();
+  }
   document.addEventListener("keydown", (event) => {
     if (document.activeElement !== main.view)
       return;
@@ -394,6 +432,12 @@ function editView(rows, cols, highlighter, onChange) {
       cursor2.start = { line: 0, col: 0 };
       cursor2.end = { line: lines.length - 1, col: lines.at(-1).length };
       return render();
+    }
+    if (mod && event.key === "/") {
+      event.preventDefault();
+      if (editable)
+        toggleComments();
+      return;
     }
     if (!editable)
       return;
@@ -468,21 +512,34 @@ function editView(rows, cols, highlighter, onChange) {
     userSelect: "none"
   });
   main.view.tabIndex = 0;
-  main.view.onclick = (event) => {
-    if (event.target === main.view) {
-      main.view.focus();
-      setCursor({ line: lines.length - 1, col: lines.at(-1).length });
-      render();
+  function pointerPosition(target) {
+    const element = target;
+    if (element === main.view) {
+      return { line: lines.length - 1, col: lines.at(-1).length };
     }
+    const line = Number(element?.dataset.line);
+    const col = Number(element?.dataset.col);
+    return Number.isInteger(line) && Number.isInteger(col) ? { line, col } : undefined;
+  }
+  main.view.onmousedown = (event) => {
+    if (event.target !== main.view)
+      return;
+    event.preventDefault();
+    main.view.focus();
+    const at = pointerPosition(event.target);
+    if (event.shiftKey)
+      moveCursor(at, true);
+    else
+      setCursor(at);
+    dragging = true;
+    render();
   };
   main.view.onmousemove = (event) => {
     if (!dragging)
       return;
-    const target = event.target;
-    const line = Number(target.dataset.line);
-    const col = Number(target.dataset.col);
-    if (Number.isInteger(line) && Number.isInteger(col)) {
-      moveCursor({ line, col }, true);
+    const at = pointerPosition(event.target);
+    if (at) {
+      moveCursor(at, true);
       render();
     }
   };
@@ -532,12 +589,18 @@ function editView(rows, cols, highlighter, onChange) {
       });
       const number = span(no.toString().padStart(3, " ") + " ").style({ color: palette.hint });
       const lineEl = div(number, ...chars);
+      lineEl.view.dataset.line = String(no);
+      lineEl.view.dataset.col = String(line.length);
       lineEl.view.onmousedown = (event) => {
         if (event.target !== lineEl.view)
           return;
         event.preventDefault();
         main.view.focus();
-        setCursor({ line: no, col: line.length });
+        const at = { line: no, col: line.length };
+        if (event.shiftKey)
+          moveCursor(at, true);
+        else
+          setCursor(at);
         dragging = true;
         render();
       };
@@ -1006,10 +1069,11 @@ var tabs = navbar({
     }
     return output;
   },
-  about: () => div(p("bend-editor is fan art for the ", link("Bend", "https://bend-lang.org/"), " programming language."), p("say hi: ", link("contact", "https://x.com/dogecahedron")), h3("shortcuts"), niceTable([
+  about: () => div(p("bend-editor is fan art for the ", link("Bend", "https://bend-lang.org/"), " programming language."), p("say hi: ", link("contact", "https://x.com/dogecahedron")), p("source: ", link("github", "https://github.com/DKormann/bend-editor")), h3("shortcuts"), niceTable([
     ["Shortcut", "Action"],
     ["Cmd + Enter", "toggle editor / output"],
-    ["Cmd + Click", "jump to definition"]
+    ["Cmd + Click", "jump to definition"],
+    ["Cmd + /", "toggle comment"]
   ])).style({ padding: "1em" })
 });
 editor.setDefinitionHandler((request) => {
@@ -1021,5 +1085,5 @@ editor.setTypeHandler(requestTypePreview, hideTypePreview);
 openProjectFile(project.entry, false);
 body.append(head, tabs, typePreview);
 
-//# debugId=2AF4E73EC458B2FA64756E2164756E21
+//# debugId=C04C62AB1D38370B64756E2164756E21
 //# sourceMappingURL=main.js.map

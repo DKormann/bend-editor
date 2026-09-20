@@ -201,5 +201,3 @@ export function niceTable (items: (EL<any> | string)[][]) {
     overflow: "hidden",
   })
 }
-
-

@@ -47,8 +47,9 @@ content-addressed package import into the entry file. Bend's own loader fetches
 and cryptographically verifies imported Hub packages inside the worker.
 
 The editor supports mouse and Shift-arrow text selection, Select All, copy,
-cut, and multiline paste. These also work for read-only Bend Hub previews
-(copy only). Hover a known name to preview its Bend type. This includes
+cut, and multiline paste. Command/Ctrl + `/` toggles Bend `#` comments on the
+current line or every selected nonempty line. These also work for read-only
+Bend Hub previews (copy only). Hover a known name to preview its Bend type. This includes
 top-level functions, datatypes, constructors, Base names, local imports, and
 Bend Hub imports. Command/Ctrl-click a name (or press F12 with the cursor on
 it) to jump to its definition.

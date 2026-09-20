@@ -438,12 +438,15 @@ const tabs = navbar({
   about: () => div(
     p("bend-editor is fan art for the ", link("Bend", "https://bend-lang.org/"), " programming language."),
     p("say hi: ", link("contact", "https://x.com/dogecahedron")),
+    p("source: ", link("github", "https://github.com/DKormann/bend-editor")),
+
     h3("shortcuts"),
     niceTable([
       ["Shortcut", "Action"],
       ["Cmd + Enter", "toggle editor / output"],
       ["Cmd + Click", "jump to definition"],
-      
+      ["Cmd + /", "toggle comment"],
+
     ]),
   ).style({ padding: "1em" }),
 });
