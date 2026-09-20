@@ -1,26 +1,45 @@
 
 
 const css = `
-
-  @media (prefers-color-scheme: dark) {
-    :root{
-      --text-color: #e6d8c1;
-      --background-color: #172033;
-    }
-  }
-
-  :root{
+  :root {
+    color-scheme: light;
     font-family: ui-monospace, Menlo, "SF Mono", Consolas, "Liberation Mono", monospace;
     color: var(--text-color);
     background: var(--background-color);
-    --accent-color: #6e47cb;
-    --hint-color: #f6f3ed;
+
     --text-color: #172033;
     --background-color: #e8e2cc;
-    --color2: #74aa31;
+    --accent-color: #6e47cb;
+    --hint-color: #f6f3ed;
+    --color2: #668f31;
     --color3: #9e4714;
     --color4: #09629a;
+  }
 
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --text-color: #e7dfd3;
+      --background-color: #121a2a;
+      --accent-color: #b392f0;
+      --hint-color: #2a3852;
+      --color2: #9ecb7b;
+      --color3: #e6a06b;
+      --color4: #75bce8;
+    }
+  }
+
+  body {
+    background: var(--background-color);
+    color: var(--text-color);
+  }
+
+  button, input, textarea {
+    color: inherit;
+  }
+
+  * {
+    scrollbar-color: var(--hint-color) transparent;
   }
 `
 
