@@ -9,6 +9,7 @@ export function editView(
   rows: number,
   cols: number,
   highlighter?: (lines: string[]) => number[][],
+  onChange?: (lines: string[]) => void,
 ){
 
   const cursor : { start: pos, end: pos } = { start: { line: 0, col: 0 }, end: { line: 0, col: 0 } }
@@ -19,6 +20,7 @@ export function editView(
   }
 
   let lines: string[] = ['']
+  let editable = true;
 
   function moveCursorX(delta: number){
     if (delta < 0) {
@@ -74,6 +76,7 @@ export function editView(
   }
 
   document.addEventListener("keydown", e=>{
+    if (!editable) return;
     if (e.key.length == 1) insertText([e.key]);
     if (e.key == "Enter" && !e.metaKey){
       insertText(['',''])
@@ -107,7 +110,8 @@ export function editView(
 
   function onTextChange(){
     if (highlighter) colorMap = highlighter(lines);
-    render()
+    render();
+    onChange?.([...lines]);
   }
 
   function render (){
@@ -134,9 +138,15 @@ export function editView(
   return {
     view: main,
     setText: (text: string[])=>{
-      lines = text;
+      lines = [...text];
+      setCursor({ line: 0, col: 0 });
+      if (highlighter) colorMap = highlighter(lines);
       render();
     },
-    getText: () =>lines,
+    getText: () => [...lines],
+    setEditable: (value: boolean) => {
+      editable = value;
+      main.style({ opacity: value ? "1" : ".85" });
+    },
   }
 }

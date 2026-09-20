@@ -214,20 +214,16 @@ function navbar(items) {
   render();
   return Object.assign(view, { select });
 }
-function niceList(items) {
-  return div(...items).style({
-    padding: "1em"
-  });
-}
 
 // editView.ts
-function editView(rows, cols, highlighter) {
+function editView(rows, cols, highlighter, onChange) {
   const cursor2 = { start: { line: 0, col: 0 }, end: { line: 0, col: 0 } };
   function setCursor(pos) {
     cursor2.start = { ...pos };
     cursor2.end = { ...pos };
   }
   let lines = [""];
+  let editable = true;
   function moveCursorX(delta) {
     if (delta < 0) {
       if (cursor2.start.col > 0)
@@ -276,6 +272,8 @@ function editView(rows, cols, highlighter) {
     onTextChange();
   }
   document.addEventListener("keydown", (e) => {
+    if (!editable)
+      return;
     if (e.key.length == 1)
       insertText([e.key]);
     if (e.key == "Enter" && !e.metaKey) {
@@ -316,6 +314,7 @@ function editView(rows, cols, highlighter) {
     if (highlighter)
       colorMap = highlighter(lines);
     render();
+    onChange?.([...lines]);
   }
   function render() {
     let lineEls = lines.map((line, no) => {
@@ -345,18 +344,99 @@ function editView(rows, cols, highlighter) {
   return {
     view: main,
     setText: (text) => {
-      lines = text;
+      lines = [...text];
+      setCursor({ line: 0, col: 0 });
+      if (highlighter)
+        colorMap = highlighter(lines);
       render();
     },
-    getText: () => lines
+    getText: () => [...lines],
+    setEditable: (value) => {
+      editable = value;
+      main.style({ opacity: value ? "1" : ".85" });
+    }
   };
 }
 
+// hub.ts
+var HUB_ORIGIN = "https://hub.bend-lang.com";
+var HASH = /^0x[0-9a-f]{32}$/;
+async function fetchHubIndex() {
+  const response = await fetch(`${HUB_ORIGIN}/index.json`);
+  if (!response.ok)
+    throw new Error(`Bend Hub answered ${response.status}`);
+  const packages = await response.json();
+  return packages.filter((pkg) => HASH.test(pkg.hash) && pkg.files !== null);
+}
+async function fetchHubFile(hash, path) {
+  if (!HASH.test(hash) || path.startsWith("/") || path.split("/").includes("..")) {
+    throw new Error("Invalid Bend Hub file path");
+  }
+  const response = await fetch(`${HUB_ORIGIN}/${hash}/${path}`);
+  if (!response.ok)
+    throw new Error(`Bend Hub answered ${response.status}`);
+  return response.text();
+}
+function formatBytes(bytes) {
+  if (bytes < 1024)
+    return `${bytes} B`;
+  if (bytes < 1024 * 1024)
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 // main.ts
+var STORAGE_KEY = "bend-editor.project.v1";
+var DEFAULT_PROJECT = {
+  entry: "main.bend",
+  files: {
+    "main.bend": `import Base
+
+def main() -> Nat:
+  0n`,
+    "foo.bend": `import Base
+
+def foo() -> Nat:
+  22n`
+  }
+};
+function loadProject() {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
+    if (value && typeof value.entry === "string" && value.files && value.entry in value.files)
+      return value;
+  } catch {}
+  return { entry: DEFAULT_PROJECT.entry, files: { ...DEFAULT_PROJECT.files } };
+}
+function saveProject() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+}
+function smallButton(label, action) {
+  const button = elFromTag("button").append(label).style({
+    background: "transparent",
+    border: `1px solid ${palette.hint}`,
+    borderRadius: "3px",
+    color: palette.text,
+    cursor: "pointer",
+    font: "inherit",
+    marginLeft: ".5em"
+  });
+  button.view.onclick = (event) => {
+    event.stopPropagation();
+    action();
+  };
+  return button;
+}
+var project = loadProject();
+var activeDocument;
 var runInitiated = false;
-var editor = editView(40, 80, (t) => {
+var editor = editView(40, 80, highlightBend, (lines) => {
+  if (activeDocument?.kind === "project") {
+    project.files[activeDocument.path] = lines.join(`
+`);
+    saveProject();
+  }
   runInitiated = false;
-  return highlightBend(t);
 });
 var output = pre().style({
   boxSizing: "border-box",
@@ -386,24 +466,162 @@ function run() {
       finish(event.data.output);
   };
   worker.onerror = (event) => finish(`Worker error: ${event.message}`);
-  worker.postMessage({ id, source: editor.getText().join(`
-`) });
+  worker.postMessage({ id, entry: project.entry, files: project.files });
   timeout = setTimeout(() => finish("Execution stopped after 5 seconds."), 5000);
 }
-var head = div(h1(link("bend2", "https://bend-lang.org/").style({ textDecoration: "none" }), cursor).style({ display: "flex", alignItems: "center" })).style({ display: "flex", alignItems: "center" });
-var files = {
-  "main.bend": editor.getText().join(`
-`),
-  "foo.bend": `def foo() -> Nat: 22n`
-};
+var documentName = span().style({ color: palette.colors[4], marginLeft: "1em" });
+var head = div(h1(link("bend2", "https://bend-lang.org/").style({ textDecoration: "none" }), cursor).style({ display: "flex", alignItems: "center" }), documentName).style({ display: "flex", alignItems: "center" });
+function openProjectFile(path, showEditor = true) {
+  const source = project.files[path];
+  if (source === undefined)
+    return;
+  activeDocument = { kind: "project", path };
+  documentName.replaceChildren(path === project.entry ? `${path} (entry)` : path);
+  editor.setEditable(true);
+  editor.setText(source.split(`
+`));
+  runInitiated = false;
+  renderProjectFiles();
+  if (showEditor)
+    tabs.select("editor");
+}
+function validProjectPath(path) {
+  return path.endsWith(".bend") && !path.startsWith("/") && !path.split("/").some((part) => part === "" || part === "." || part === "..");
+}
+function newProjectFile() {
+  const path = prompt("New project file", "module.bend")?.trim();
+  if (!path)
+    return;
+  if (!validProjectPath(path))
+    return alert("Use a relative path ending in .bend");
+  if (project.files[path] !== undefined)
+    return alert(`${path} already exists`);
+  project.files[path] = `import Base
+`;
+  saveProject();
+  openProjectFile(path);
+}
+function importHubFile(pkg, path) {
+  if (!path.endsWith(".bend"))
+    return;
+  const target = project.entry;
+  const lines = project.files[target].split(`
+`);
+  const stem = path.split("/").at(-1).replace(/\.bend$/, "").replace(/[^A-Za-z0-9_]/g, "_");
+  let alias = stem.charAt(0).toUpperCase() + stem.slice(1) || "Package";
+  if (!/^[A-Za-z_]/.test(alias))
+    alias = "P_" + alias;
+  if (lines.some((line) => new RegExp(`\\sas\\s+${alias}\\s*(?:#.*)?$`).test(line))) {
+    alias += "_" + pkg.hash.slice(2, 6);
+  }
+  const statement = `import ${pkg.hash}/${path} as ${alias}`;
+  if (!lines.includes(statement)) {
+    let at = 0;
+    while (at < lines.length && (/^\s*(?:#.*)?$/.test(lines[at]) || /^\s*import\s/.test(lines[at])))
+      at += 1;
+    lines.splice(at, 0, statement);
+    project.files[target] = lines.join(`
+`);
+    saveProject();
+  }
+  openProjectFile(target);
+}
+var projectFiles = div();
+function renderProjectFiles() {
+  projectFiles.replaceChildren(...Object.keys(project.files).sort().map((path) => {
+    const selected = activeDocument?.kind === "project" && activeDocument.path === path;
+    const row = div((path === project.entry ? "◆ " : "  ") + path).style({
+      background: selected ? palette.hint : "transparent",
+      cursor: "pointer",
+      padding: ".15em .4em"
+    });
+    row.view.onclick = () => openProjectFile(path);
+    return row;
+  }));
+}
+var hubPackages;
+var hubError = "";
+var expandedPackage;
+var hubResults = div();
+var hubSearch = elFromTag("input").assignProperties({
+  placeholder: "search descriptions, files or hashes",
+  spellcheck: false
+}).style({
+  background: "transparent",
+  border: `1px solid ${palette.hint}`,
+  boxSizing: "border-box",
+  color: palette.text,
+  font: "inherit",
+  margin: ".5em 0",
+  padding: ".4em",
+  width: "100%"
+});
+hubSearch.view.oninput = () => renderHubPackages();
+function renderHubPackages() {
+  if (hubError) {
+    hubResults.replaceChildren(hubError);
+    return;
+  }
+  if (hubPackages === undefined) {
+    hubResults.replaceChildren("Loading Bend Hub…");
+    return;
+  }
+  const query = hubSearch.view.value.trim().toLowerCase();
+  const packages = hubPackages.filter((pkg) => !query || pkg.hash.includes(query) || pkg.desc.toLowerCase().includes(query) || Object.keys(pkg.files).some((path) => path.toLowerCase().includes(query))).slice(0, 30);
+  hubResults.replaceChildren(...packages.map((pkg) => {
+    const open = expandedPackage === pkg.hash;
+    const title = div(span((open ? "▾ " : "▸ ") + (pkg.desc || pkg.hash)), span(` ${Object.keys(pkg.files).length} files · ${formatBytes(pkg.bytes)}`).style({ color: palette.colors[4], fontSize: ".85em" })).style({ cursor: "pointer", padding: ".3em 0" });
+    title.view.onclick = () => {
+      expandedPackage = open ? undefined : pkg.hash;
+      renderHubPackages();
+    };
+    if (!open)
+      return div(title);
+    const fileRows = Object.entries(pkg.files).map(([path, bytes]) => {
+      const row = div(span(`${path}  ${formatBytes(bytes)}`), smallButton("view", () => void openHubFile(pkg, path)), ...path.endsWith(".bend") ? [smallButton("import", () => importHubFile(pkg, path))] : []).style({ padding: ".15em 0 .15em 1.5em" });
+      return row;
+    });
+    return div(title, ...fileRows, div(link("open package on hub", `${HUB_ORIGIN}/${pkg.hash}`)).style({ paddingLeft: "1.5em" }));
+  }));
+}
+async function loadHub() {
+  if (hubPackages !== undefined)
+    return;
+  renderHubPackages();
+  try {
+    hubPackages = await fetchHubIndex();
+  } catch (error) {
+    hubError = String(error);
+  }
+  renderHubPackages();
+}
+async function openHubFile(pkg, path) {
+  documentName.replaceChildren(`${pkg.hash.slice(0, 10)}…/${path} (read only)`);
+  editor.setEditable(false);
+  editor.setText(["Loading from Bend Hub…"]);
+  activeDocument = { kind: "hub", hash: pkg.hash, path };
+  tabs.select("editor");
+  try {
+    const source = await fetchHubFile(pkg.hash, path);
+    if (activeDocument.kind === "hub" && activeDocument.hash === pkg.hash && activeDocument.path === path) {
+      editor.setText(source.split(`
+`));
+    }
+  } catch (error) {
+    editor.setText([String(error)]);
+  }
+}
+var explorer = div(h2("Project", smallButton("+ file", newProjectFile)), projectFiles, h2("Bend Hub"), hubSearch, hubResults).style({ padding: "1em" });
 var tabs = navbar({
-  explorer() {
-    return niceList(Object.entries(files).map(([name, content]) => div(name)));
+  explorer: () => {
+    renderProjectFiles();
+    loadHub();
+    return explorer;
   },
   editor: () => editor.view,
   output: () => {
     if (!runInitiated) {
-      output.append(p("Checking…"));
+      output.replaceChildren(p("Checking…"));
       runInitiated = true;
       run();
     }
@@ -411,7 +629,8 @@ var tabs = navbar({
   },
   about: () => div(p("bend-editor is fan art for the ", link("Bend", "https://bend-lang.org/"), " programming language."), p("say hi: ", link("contact", "https://x.com/dogecahedron"))).style({ padding: "1em" })
 });
+openProjectFile(project.entry, false);
 body.append(head, tabs);
 
-//# debugId=91B008D9C0272F0B64756E2164756E21
+//# debugId=BA13D2F85A58510C64756E2164756E21
 //# sourceMappingURL=main.js.map

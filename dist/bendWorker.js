@@ -6066,7 +6066,6 @@ function book_valid(book, done = 0) {
 }
 
 // bendWorker.ts
-var MAIN_FILE = "/project/main.bend";
 function showError(error) {
   if (error instanceof RangeError) {
     return "Error: the machine stack overflowed (deep recursion or a literal that is too large).";
@@ -6074,10 +6073,19 @@ function showError(error) {
   const bendError = error;
   return bendError?.$ === "Err" ? err_show(bendError) : String(error);
 }
-async function run(source) {
-  mount(MAIN_FILE, source);
+function projectPath(path) {
+  if (path.startsWith("/") || path.split("/").some((part) => part === "" || part === "." || part === "..")) {
+    throw new Error(`Invalid project path: ${path}`);
+  }
+  return `/project/${path}`;
+}
+async function run(entry, files2) {
+  if (files2[entry] === undefined)
+    throw new Error(`Missing entry file: ${entry}`);
+  for (const [path, source] of Object.entries(files2))
+    mount(projectPath(path), source);
   const book = book_nil();
-  await book_load(book, MAIN_FILE, "", new Map);
+  await book_load(book, projectPath(entry), "", new Map);
   book_valid(book);
   const todos = book.hols + book.open;
   if (todos > 0) {
@@ -6093,14 +6101,14 @@ async function run(source) {
 ` + term_show(term_lower(value));
 }
 self.onmessage = async (event) => {
-  const { id, source } = event.data;
+  const { id, entry, files: files2 } = event.data;
   try {
-    const output = await run(source);
+    const output = await run(entry, files2);
     self.postMessage({ id, ok: true, output });
   } catch (error) {
     self.postMessage({ id, ok: false, output: showError(error) });
   }
 };
 
-//# debugId=2C11975264E0C8A564756E2164756E21
+//# debugId=36E091684B0E7CA964756E2164756E21
 //# sourceMappingURL=bendWorker.js.map

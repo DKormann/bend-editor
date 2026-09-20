@@ -155,9 +155,23 @@ export function navbar(items: Record<string, ()=> EL<any>>) {
   return Object.assign(view, { select });
 }
 
-export function niceList(items: (EL<any> | string)[]) {
-  return div(...items).style({
-    padding: "1em"
+export function niceList(items: [(EL<any> | string), Partial<HTMLElement>][]) {
+  return div(
+    ...items.map(([content, props], idx) => {
+      const el = div(content).style({
+        margin: ".2em 0",
+        padding: ".2em .5em",
+        cursor: "pointer",
+        borderTop: idx > 0 ? `2px solid ${palette.hint}` : "none",
+      });
+      Object.assign(el.view, props);
+      return el;
+    })
+  ).style({
+    padding: "0 1em",
+    margin: "1.5em",
+    border: `2px solid ${palette.hint}`,
+    borderRadius: "6px",
   });
 }
 
