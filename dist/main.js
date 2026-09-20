@@ -185,7 +185,7 @@ function navbar(items) {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key == "Enter" && e.metaKey)
-      render(selection == 0 ? 1 : 0);
+      render(selection == 1 ? 2 : 1);
   });
   let selection = 0;
   function render(sel = 0) {
@@ -300,8 +300,11 @@ function editView(rows, cols, highlighter, onChange) {
     }
     if (!editable)
       return;
-    if (e.key.length == 1)
+    if (e.key.length == 1) {
+      if (e.metaKey || e.ctrlKey)
+        return;
       insertText([e.key]);
+    }
     if (e.key == "Enter" && !e.metaKey) {
       insertText(["", ""]);
     }
@@ -317,9 +320,9 @@ function editView(rows, cols, highlighter, onChange) {
       if (e.key == "ArrowRight")
         moveCursorX(e.metaKey ? lines[cursor2.start.line].length : 1);
       if (e.key == "ArrowUp")
-        moveCursorY(e.metaKey ? cursor2.start.line : -1);
+        moveCursorY(e.metaKey ? -cursor2.start.line : -1);
       if (e.key == "ArrowDown")
-        moveCursorY(e.metaKey ? cursor2.start.line : 1);
+        moveCursorY(e.metaKey ? lines.length : 1);
       render();
     }
   });
@@ -440,9 +443,10 @@ var DEFAULT_PROJECT = {
   entry: "main.bend",
   files: {
     "main.bend": `import Base
+import ./foo.bend as foo
 
 def main() -> Nat:
-  0n`,
+  foo.foo`,
     "foo.bend": `import Base
 
 def foo() -> Nat:
@@ -848,5 +852,5 @@ editor.setTypeHandler(requestTypePreview, hideTypePreview);
 openProjectFile(project.entry, false);
 body.append(head, tabs, typePreview);
 
-//# debugId=B688C2E2853C6D3364756E2164756E21
+//# debugId=62C2DB18091DE67E64756E2164756E21
 //# sourceMappingURL=main.js.map

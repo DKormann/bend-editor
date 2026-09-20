@@ -123,7 +123,7 @@ export function navbar(items: Record<string, ()=> EL<any>>) {
   });
 
   document.addEventListener("keydown", e=>{
-    if (e.key == "Enter" && e.metaKey) render(selection == 0 ? 1: 0)
+    if (e.key == "Enter" && e.metaKey) render(selection == 1 ? 2: 1)
   })
 
   let selection = 0

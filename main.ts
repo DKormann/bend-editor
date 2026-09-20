@@ -12,7 +12,7 @@ const STORAGE_KEY = "bend-editor.project.v1";
 const DEFAULT_PROJECT: Project = {
   entry: "main.bend",
   files: {
-    "main.bend": "import Base\n\ndef main() -> Nat:\n  0n",
+    "main.bend": "import Base\nimport ./foo.bend as foo\n\ndef main() -> Nat:\n  foo.foo",
     "foo.bend": "import Base\n\ndef foo() -> Nat:\n  22n",
   },
 };

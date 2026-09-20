@@ -103,7 +103,10 @@ export function editView(
       return;
     }
     if (!editable) return;
-    if (e.key.length == 1) insertText([e.key]);
+    if (e.key.length == 1) {
+      if (e.metaKey || e.ctrlKey) return;
+      insertText([e.key]);
+    }
     if (e.key == "Enter" && !e.metaKey){
       insertText(['',''])
     }
@@ -116,8 +119,8 @@ export function editView(
       if (e.metaKey) e.preventDefault()
       if (e.key == "ArrowLeft")  moveCursorX(e.metaKey ? -Math.max(1,lines[cursor.start.line]!.length) : -1)
       if (e.key == "ArrowRight") moveCursorX(e.metaKey ? lines[cursor.start.line]!.length : 1)
-      if (e.key == "ArrowUp")    moveCursorY(e.metaKey ? cursor.start.line : -1)
-      if (e.key == "ArrowDown")  moveCursorY(e.metaKey ? cursor.start.line : 1)
+      if (e.key == "ArrowUp")    moveCursorY(e.metaKey ? -cursor.start.line : -1)
+      if (e.key == "ArrowDown")  moveCursorY(e.metaKey ? lines.length : 1)
       render()
     }
 
