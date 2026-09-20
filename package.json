@@ -1,0 +1,12 @@
+{
+  "name": "bend-editor",
+  "private": true,
+  "scripts": {
+    "build": "bun run build.ts",
+    "dev": "bun run server.ts",
+    "start": "bun run server.ts"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}

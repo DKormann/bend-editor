@@ -5,6 +5,8 @@ type pos = {
   col: number,
 }
 
+export type DefinitionRequest = pos & { token: string };
+
 export function editView(
   rows: number,
   cols: number,
@@ -21,6 +23,25 @@ export function editView(
 
   let lines: string[] = ['']
   let editable = true;
+  let definitionHandler: ((request: DefinitionRequest) => void) | undefined;
+  let typeHandler: ((request: DefinitionRequest, target: HTMLElement) => void) | undefined;
+  let typeLeaveHandler: (() => void) | undefined;
+
+  function definitionAt(pos: pos): DefinitionRequest | undefined {
+    const line = lines[pos.line] ?? "";
+    const isName = (char: string) => /[A-Za-z0-9_.$]/.test(char);
+    let start = Math.min(pos.col, Math.max(0, line.length - 1));
+    if (!isName(line[start] ?? "")) return undefined;
+    let end = start + 1;
+    while (start > 0 && isName(line[start - 1]!)) start -= 1;
+    while (end < line.length && isName(line[end]!)) end += 1;
+    return { line: pos.line, col: start, token: line.slice(start, end) };
+  }
+
+  function requestDefinition(pos: pos): void {
+    const request = definitionAt(pos);
+    if (request) definitionHandler?.(request);
+  }
 
   function moveCursorX(delta: number){
     if (delta < 0) {
@@ -76,6 +97,11 @@ export function editView(
   }
 
   document.addEventListener("keydown", e=>{
+    if (e.key === "F12") {
+      e.preventDefault();
+      requestDefinition(cursor.start);
+      return;
+    }
     if (!editable) return;
     if (e.key.length == 1) insertText([e.key]);
     if (e.key == "Enter" && !e.metaKey){
@@ -120,7 +146,16 @@ export function editView(
         let cidx = colorMap[no]?.[col] ?? 0;
         let color = palette.colors[cidx % palette.colors.length]
         let el = span(char).style({color})
-        el.view.onclick = () => {setCursor({ line: no, col: col }); render()};
+        el.view.onclick = event => {
+          setCursor({ line: no, col: col });
+          if (event.metaKey || event.ctrlKey) requestDefinition({ line: no, col });
+          render();
+        };
+        el.view.onmouseenter = () => {
+          const request = definitionAt({ line: no, col });
+          if (request) typeHandler?.(request, el.view);
+        };
+        el.view.onmouseleave = () => typeLeaveHandler?.();
         if (cursor.start.line == no && Math.min(line.length, cursor.start.col) == col)
           el.style({ background: palette.accent, width: "1ch",});
         return el
@@ -147,6 +182,25 @@ export function editView(
     setEditable: (value: boolean) => {
       editable = value;
       main.style({ opacity: value ? "1" : ".85" });
+    },
+    setDefinitionHandler: (handler: (request: DefinitionRequest) => void) => {
+      definitionHandler = handler;
+    },
+    setTypeHandler: (
+      handler: (request: DefinitionRequest, target: HTMLElement) => void,
+      leave: () => void,
+    ) => {
+      typeHandler = handler;
+      typeLeaveHandler = leave;
+    },
+    goTo: (line: number, col: number) => {
+      setCursor({
+        line: Math.max(0, Math.min(lines.length - 1, line)),
+        col: Math.max(0, col),
+      });
+      render();
+      requestAnimationFrame(() => main.view.children.item(cursor.start.line)
+        ?.scrollIntoView({ block: "center" }));
     },
   }
 }

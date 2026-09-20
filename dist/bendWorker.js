@@ -6079,11 +6079,14 @@ function projectPath(path) {
   }
   return `/project/${path}`;
 }
+function mountProject(files2) {
+  for (const [path, source] of Object.entries(files2))
+    mount(projectPath(path), source);
+}
 async function run(entry, files2) {
   if (files2[entry] === undefined)
     throw new Error(`Missing entry file: ${entry}`);
-  for (const [path, source] of Object.entries(files2))
-    mount(projectPath(path), source);
+  mountProject(files2);
   const book = book_nil();
   await book_load(book, projectPath(entry), "", new Map);
   book_valid(book);
@@ -6100,15 +6103,53 @@ async function run(entry, files2) {
   return checked + `
 ` + term_show(term_lower(value));
 }
+function importsOf(source) {
+  return [...source.matchAll(/^\s*import\s+(\S+)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)/gm)].map((match) => ({
+    module: match[1].replace(/^\.\//, "").replace(/\.bend$/, ""),
+    alias: match[2]
+  }));
+}
+function importedName(source, token) {
+  const [prefix, ...rest] = token.split(".");
+  const imported = importsOf(source).find((item) => item.alias === prefix);
+  if (imported === undefined)
+    return token;
+  return imported.module + (rest.length === 0 ? "" : "." + rest.join("."));
+}
+async function typeOf(request) {
+  mountProject(request.files);
+  const file = request.document.kind === "project" ? projectPath(request.document.path) : `/home/web/.bend/lib/${request.document.hash}/${request.document.path}`;
+  const book = book_nil();
+  await book_load(book, file, "", new Map);
+  const source = readFileSync(file, "utf8");
+  const name = importedName(source, request.token);
+  const item = book.tlds[name] ?? book.ctrs[name];
+  if (item === undefined)
+    return;
+  let type = term_show(term_lower(item.T));
+  for (const imported of importsOf(source)) {
+    type = type.replaceAll(imported.module + ".", imported.alias + ".");
+  }
+  return `${request.token} : ${type}`;
+}
 self.onmessage = async (event) => {
-  const { id, entry, files: files2 } = event.data;
+  const request = event.data;
+  if (request.kind === "type") {
+    try {
+      const type = await typeOf(request);
+      self.postMessage({ kind: "type", id: request.id, type });
+    } catch {
+      self.postMessage({ kind: "type", id: request.id });
+    }
+    return;
+  }
   try {
-    const output = await run(entry, files2);
-    self.postMessage({ id, ok: true, output });
+    const output = await run(request.entry, request.files);
+    self.postMessage({ kind: "run", id: request.id, ok: true, output });
   } catch (error) {
-    self.postMessage({ id, ok: false, output: showError(error) });
+    self.postMessage({ kind: "run", id: request.id, ok: false, output: showError(error) });
   }
 };
 
-//# debugId=36E091684B0E7CA964756E2164756E21
+//# debugId=747AD848305B57B864756E2164756E21
 //# sourceMappingURL=bendWorker.js.map

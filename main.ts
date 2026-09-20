@@ -1,5 +1,5 @@
 import { highlightBend } from "./bendHighlight";
-import { editView } from "./editView";
+import { editView, type DefinitionRequest } from "./editView";
 import { fetchHubFile, fetchHubIndex, formatBytes, HUB_ORIGIN, type HubPackage } from "./hub";
 import { body, cursor, div, elFromTag, h1, h2, link, navbar, p, palette, pre, span } from "./ui";
 
@@ -49,12 +49,14 @@ function smallButton(label: string, action: () => void) {
 let project = loadProject();
 let activeDocument: OpenDocument | undefined;
 let runInitiated = false;
+const typeCache = new Map<string, string>();
 
 const editor = editView(40, 80, highlightBend, lines => {
   if (activeDocument?.kind === "project") {
     project.files[activeDocument.path] = lines.join("\n");
     saveProject();
   }
+  typeCache.clear();
   runInitiated = false;
 });
 
@@ -88,21 +90,38 @@ function run(): void {
     if (event.data.id === id) finish(event.data.output);
   };
   worker.onerror = event => finish(`Worker error: ${event.message}`);
-  worker.postMessage({ id, entry: project.entry, files: project.files });
+  worker.postMessage({ kind: "run", id, entry: project.entry, files: project.files });
   timeout = setTimeout(() => finish("Execution stopped after 5 seconds."), 5000);
 }
 
 const documentName = span().style({ color: palette.colors[4], marginLeft: "1em" });
+const definitionStatus = span().style({ color: palette.colors[3], marginLeft: "1em" });
+const typePreview = pre().style({
+  background: palette.background,
+  border: `1px solid ${palette.hint}`,
+  borderRadius: "4px",
+  boxShadow: "0 4px 14px #0003",
+  display: "none",
+  margin: "0",
+  maxWidth: "60ch",
+  padding: ".5em .7em",
+  pointerEvents: "none",
+  position: "fixed",
+  whiteSpace: "pre-wrap",
+  zIndex: "10",
+});
 const head = div(
   h1(link("bend2", "https://bend-lang.org/").style({ textDecoration: "none" }), cursor)
     .style({ display: "flex", alignItems: "center" }),
   documentName,
+  definitionStatus,
 ).style({ display: "flex", alignItems: "center" });
 
 function openProjectFile(path: string, showEditor = true): void {
   const source = project.files[path];
   if (source === undefined) return;
   activeDocument = { kind: "project", path };
+  definitionStatus.replaceChildren();
   documentName.replaceChildren(path === project.entry ? `${path} (entry)` : path);
   editor.setEditable(true);
   editor.setText(source.split("\n"));
@@ -235,18 +254,161 @@ async function loadHub(): Promise<void> {
 }
 
 async function openHubFile(pkg: HubPackage, path: string): Promise<void> {
-  documentName.replaceChildren(`${pkg.hash.slice(0, 10)}…/${path} (read only)`);
+  await showHubFile(pkg.hash, path);
+}
+
+async function showHubFile(hash: string, path: string, line = 0, col = 0): Promise<void> {
+  definitionStatus.replaceChildren();
+  documentName.replaceChildren(`${hash.slice(0, 10)}…/${path} (read only)`);
   editor.setEditable(false);
   editor.setText(["Loading from Bend Hub…"]);
-  activeDocument = { kind: "hub", hash: pkg.hash, path };
+  activeDocument = { kind: "hub", hash, path };
   tabs.select("editor");
   try {
-    const source = await fetchHubFile(pkg.hash, path);
-    if (activeDocument.kind === "hub" && activeDocument.hash === pkg.hash && activeDocument.path === path) {
+    const source = await fetchHubFile(hash, path);
+    if (activeDocument.kind === "hub" && activeDocument.hash === hash && activeDocument.path === path) {
       editor.setText(source.split("\n"));
+      editor.goTo(line, col);
     }
   } catch (error) {
     editor.setText([String(error)]);
+  }
+}
+
+function relativePath(from: string, target: string): string | undefined {
+  const parts = from.split("/").slice(0, -1).concat(target.split("/"));
+  const out: string[] = [];
+  for (const part of parts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      if (out.length === 0) return undefined;
+      out.pop();
+    } else {
+      out.push(part);
+    }
+  }
+  return out.join("/");
+}
+
+function definitionIn(source: string, symbol: string): { line: number; col: number } | undefined {
+  if (!symbol) return { line: 0, col: 0 };
+  const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const top = new RegExp(`^\\s*(?:@unsafe\\s+)?(?:def|law|type)\\s+${escaped}(?=\\s|\\(|<|:)`);
+  const constructor = new RegExp(`^\\s+${escaped}(?=\\s*(?:<[^>]*>)?\\{)`);
+  const lines = source.split("\n");
+  for (let line = 0; line < lines.length; line += 1) {
+    if (top.test(lines[line]!) || constructor.test(lines[line]!)) {
+      return { line, col: Math.max(0, lines[line]!.indexOf(symbol)) };
+    }
+  }
+  return undefined;
+}
+
+let typeWorker: Worker | undefined;
+let typeSequence = 0;
+let typeTimer: ReturnType<typeof setTimeout> | undefined;
+const pendingTypes = new Map<number, { key: string; target: HTMLElement }>();
+
+function typeKey(document: OpenDocument, token: string): string {
+  return document.kind === "project"
+    ? `project:${document.path}:${token}`
+    : `hub:${document.hash}/${document.path}:${token}`;
+}
+
+function showTypePreview(text: string, target: HTMLElement): void {
+  const rect = target.getBoundingClientRect();
+  typePreview.replaceChildren(text).style({
+    display: "block",
+    left: `${rect.left}px`,
+    top: `${rect.bottom + 6}px`,
+  });
+  const preview = typePreview.view.getBoundingClientRect();
+  if (preview.right > innerWidth - 8) {
+    typePreview.style({ left: `${Math.max(8, innerWidth - preview.width - 8)}px` });
+  }
+}
+
+function hideTypePreview(): void {
+  if (typeTimer !== undefined) clearTimeout(typeTimer);
+  typeTimer = undefined;
+  typeSequence += 1;
+  typePreview.style({ display: "none" });
+}
+
+function requestTypePreview(request: DefinitionRequest, target: HTMLElement): void {
+  if (typeTimer !== undefined) clearTimeout(typeTimer);
+  const document = activeDocument;
+  if (document === undefined) return;
+  const key = typeKey(document, request.token);
+  const cached = typeCache.get(key);
+  if (cached !== undefined) {
+    showTypePreview(cached, target);
+    return;
+  }
+
+  const id = ++typeSequence;
+  typeTimer = setTimeout(() => {
+    typeWorker ??= new Worker(new URL("./bendWorker.js", import.meta.url), { type: "module" });
+    typeWorker.onmessage = (event: MessageEvent<{ kind: string; id: number; type?: string }>) => {
+      if (event.data.kind !== "type") return;
+      const pending = pendingTypes.get(event.data.id);
+      pendingTypes.delete(event.data.id);
+      if (pending === undefined || event.data.type === undefined) return;
+      typeCache.set(pending.key, event.data.type);
+      if (event.data.id === typeSequence) showTypePreview(event.data.type, pending.target);
+    };
+    pendingTypes.set(id, { key, target });
+    typeWorker.postMessage({
+      kind: "type",
+      id,
+      files: project.files,
+      document,
+      token: request.token,
+    });
+  }, 180);
+}
+
+async function jumpToDefinition(request: DefinitionRequest): Promise<void> {
+  const current = activeDocument;
+  if (current === undefined) return;
+  const source = editor.getText().join("\n");
+  const [prefix, ...rest] = request.token.split(".");
+  const imports = [...source.matchAll(/^\s*import\s+(\S+)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)/gm)];
+  const imported = imports.find(match => match[2] === prefix);
+  let symbol = request.token;
+  let target: OpenDocument = current;
+  let targetSource = source;
+
+  if (imported !== undefined) {
+    const specifier = imported[1]!;
+    symbol = rest.join(".");
+    const remote = /^(0x[0-9a-f]{32})\/(.+)$/.exec(specifier);
+    if (remote) {
+      target = { kind: "hub", hash: remote[1]!, path: remote[2]! };
+      targetSource = await fetchHubFile(remote[1]!, remote[2]!);
+    } else if (current.kind === "hub") {
+      const path = relativePath(current.path, specifier);
+      if (path === undefined) return;
+      target = { kind: "hub", hash: current.hash, path };
+      targetSource = await fetchHubFile(current.hash, path);
+    } else {
+      const path = relativePath(current.path, specifier);
+      if (path === undefined || project.files[path] === undefined) return;
+      target = { kind: "project", path };
+      targetSource = project.files[path]!;
+    }
+  }
+
+  const found = definitionIn(targetSource, symbol);
+  if (found === undefined) {
+    definitionStatus.replaceChildren(`definition not found: ${request.token}`);
+    return;
+  }
+  if (target.kind === "project") {
+    openProjectFile(target.path);
+    editor.goTo(found.line, found.col);
+  } else {
+    await showHubFile(target.hash, target.path, found.line, found.col);
   }
 }
 
@@ -279,5 +441,11 @@ const tabs = navbar({
   ).style({ padding: "1em" }),
 });
 
+editor.setDefinitionHandler(request => {
+  void jumpToDefinition(request).catch(error => {
+    definitionStatus.replaceChildren(String(error));
+  });
+});
+editor.setTypeHandler(requestTypePreview, hideTypePreview);
 openProjectFile(project.entry, false);
-body.append(head, tabs);
+body.append(head, tabs, typePreview);
